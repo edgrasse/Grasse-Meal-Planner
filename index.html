@@ -597,7 +597,10 @@ body::before {
         <div class="section-title">Freezer</div>
         <div class="section-subtitle">What's on ice</div>
       </div>
-      <button class="btn-fab" onclick="openModal('addItemModal')">+</button>
+      <div style="display:flex;gap:10px;">
+        <button class="btn-fab" onclick="openPhotoScan()" title="Scan with camera" style="background:var(--navy-light);font-size:20px;">📷</button>
+        <button class="btn-fab" onclick="openModal('addItemModal')">+</button>
+      </div>
     </div>
 
     <div class="stats-bar" id="freezerStats"></div>
@@ -846,6 +849,78 @@ body::before {
 </div>
 
 <div class="toast" id="toast"></div>
+
+<!-- Hidden camera input -->
+<input type="file" id="cameraInput" accept="image/*" capture="environment" style="display:none;" onchange="handlePhotoScan(event)">
+
+<!-- Photo Scan Confirm Modal -->
+<div class="modal-overlay" id="photoScanModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">📷 Photo Scan</div>
+      <button class="modal-close" onclick="closeModal('photoScanModal')">×</button>
+    </div>
+
+    <!-- Scanning state -->
+    <div id="scanningState" style="text-align:center;padding:32px 0;">
+      <div class="spinner" style="margin:0 auto 16px;width:32px;height:32px;border-width:3px;"></div>
+      <div style="color:var(--muted);font-size:14px;">Analyzing your photo with AI...</div>
+    </div>
+
+    <!-- Result state -->
+    <div id="scanResultState" style="display:none;">
+      <div style="margin-bottom:16px;padding:12px;background:rgba(87,197,232,0.08);border:1px solid rgba(87,197,232,0.2);border-radius:10px;font-size:13px;color:var(--ice);">
+        ✨ AI identified this item — review and confirm below
+      </div>
+      <div id="scanPreview" style="margin-bottom:16px;text-align:center;"></div>
+      <div class="form-group">
+        <label class="form-label">Item Name</label>
+        <input class="form-input" id="scanItemName" placeholder="Item name">
+      </div>
+      <div class="grid-2">
+        <div class="form-group">
+          <label class="form-label">Quantity</label>
+          <input class="form-input" id="scanItemQty" type="number" placeholder="1" value="1">
+        </div>
+        <div class="form-group">
+          <label class="form-label">Unit</label>
+          <input class="form-input" id="scanItemUnit" placeholder="lbs, bags...">
+        </div>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Category</label>
+        <select class="form-select" id="scanItemCategory">
+          <option value="Meat">🥩 Meat</option>
+          <option value="Poultry">🍗 Poultry</option>
+          <option value="Fish/Seafood">🐟 Fish/Seafood</option>
+          <option value="Vegetables">🥦 Vegetables</option>
+          <option value="Prepared Meals">🍲 Prepared Meals</option>
+          <option value="Bread/Baked Goods">🍞 Bread/Baked Goods</option>
+          <option value="Soups/Stocks">🍜 Soups/Stocks</option>
+          <option value="Desserts/Treats">🍨 Desserts/Treats</option>
+          <option value="Appetizers">🥟 Appetizers</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Date Frozen</label>
+        <input class="form-input" id="scanItemDate" type="date">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Notes</label>
+        <input class="form-input" id="scanItemNotes" placeholder="Any details...">
+      </div>
+      <button class="btn btn-primary" style="width:100%;" onclick="confirmPhotoItem()">✅ Add to Freezer</button>
+    </div>
+
+    <!-- Error state -->
+    <div id="scanErrorState" style="display:none;text-align:center;padding:24px 0;">
+      <div style="font-size:36px;margin-bottom:12px;">⚠️</div>
+      <div style="color:var(--silver);margin-bottom:8px;">Couldn't identify the item</div>
+      <div style="color:var(--muted);font-size:13px;margin-bottom:20px;">Try a clearer photo, or add it manually.</div>
+      <button class="btn btn-ghost" onclick="closeModal('photoScanModal');openModal('addItemModal')">Add Manually</button>
+    </div>
+  </div>
+</div>
 
 <script>
 // ============================================================
@@ -1155,7 +1230,7 @@ function renderMealPlan() {
     const dayDate = new Date(currentWeekStart);
     dayDate.setDate(dayDate.getDate() + idx);
     const dateStr = dayDate.toISOString().split('T')[0];
-    const slots = ['Breakfast','Lunch','Dinner'];
+    const slots = ['Dinner'];
 
     const slotsHtml = slots.map(slot => {
       const entry = mealPlan.find(m => m.day === day && m.meal_slot === slot);
@@ -1163,11 +1238,10 @@ function renderMealPlan() {
       const confirmed = entry?.confirmed;
       return `
         <div class="meal-slot" onclick="openMealSlot('${ws}','${day}','${slot}','${entry?.id || ''}')">
-          <span class="meal-slot-label">${slot}</span>
-          <span class="meal-slot-content ${mealName ? 'filled' : ''} ${confirmed ? 'meal-confirmed' : ''}">
-            ${confirmed ? '✅ ' : ''}${mealName || '+ Add meal'}
+          <span class="meal-slot-content ${mealName ? 'filled' : ''} ${confirmed ? 'meal-confirmed' : ''}" style="font-size:15px;">
+            ${confirmed ? '✅ ' : ''}${mealName || '+ Add dinner'}
           </span>
-          ${mealName && !confirmed ? `<button class="confirm-btn" onclick="event.stopPropagation();confirmMeal('${entry.id}')">✓ Made</button>` : ''}
+          ${mealName && !confirmed ? `<button class="confirm-btn" onclick="event.stopPropagation();confirmMeal('${entry.id}')">✓ Made it</button>` : ''}
         </div>`;
     }).join('');
 
@@ -1568,6 +1642,115 @@ function showToast(msg) {
 
 // Set recipe URL mode as default
 setRecipeMode('url');
+
+// ============================================================
+// PHOTO SCAN
+// ============================================================
+function openPhotoScan() {
+  document.getElementById('cameraInput').click();
+}
+
+async function handlePhotoScan(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+
+  // Reset modal states
+  document.getElementById('scanningState').style.display = 'block';
+  document.getElementById('scanResultState').style.display = 'none';
+  document.getElementById('scanErrorState').style.display = 'none';
+  openModal('photoScanModal');
+
+  // Show preview
+  const previewUrl = URL.createObjectURL(file);
+
+  // Convert to base64
+  const base64 = await new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(reader.result.split(',')[1]);
+    reader.onerror = reject;
+    reader.readAsDataURL(file);
+  });
+
+  // Reset input so same photo can be used again
+  event.target.value = '';
+
+  try {
+    const response = await fetch(CF_WORKER, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-5',
+        max_tokens: 500,
+        messages: [{
+          role: 'user',
+          content: [
+            {
+              type: 'image',
+              source: { type: 'base64', media_type: file.type || 'image/jpeg', data: base64 }
+            },
+            {
+              type: 'text',
+              text: `This is a photo of food that is being added to a freezer. Identify what it is and return a JSON object with these fields:
+- name: specific food name (e.g. "Ground Beef", "Chicken Thighs", "Beef Stew")
+- category: one of exactly these options: Meat, Poultry, Fish/Seafood, Vegetables, Prepared Meals, Bread/Baked Goods, Soups/Stocks, Desserts/Treats, Appetizers
+- quantity: estimated quantity as a number (default 1 if unclear)
+- unit: unit like "lbs", "oz", "bags", "portions", or empty string if unclear
+- notes: any visible label info, packaging details, or helpful notes (brief)
+
+Return ONLY valid JSON, no markdown.`
+            }
+          ]
+        }]
+      })
+    });
+
+    const data = await response.json();
+    const text = data.content?.[0]?.text || '';
+    const clean = text.replace(/```json|```/g, '').trim();
+    const item = JSON.parse(clean);
+
+    // Populate form
+    document.getElementById('scanItemName').value = item.name || '';
+    document.getElementById('scanItemQty').value = item.quantity || 1;
+    document.getElementById('scanItemUnit').value = item.unit || '';
+    document.getElementById('scanItemNotes').value = item.notes || '';
+    document.getElementById('scanItemDate').value = new Date().toISOString().split('T')[0];
+
+    // Set category
+    const catSel = document.getElementById('scanItemCategory');
+    const matchedCat = [...catSel.options].find(o => o.value === item.category);
+    if (matchedCat) catSel.value = item.category;
+
+    // Show preview image
+    document.getElementById('scanPreview').innerHTML =
+      `<img src="${previewUrl}" style="max-height:140px;border-radius:10px;border:1px solid var(--card-border);object-fit:cover;">`;
+
+    document.getElementById('scanningState').style.display = 'none';
+    document.getElementById('scanResultState').style.display = 'block';
+
+  } catch(e) {
+    document.getElementById('scanningState').style.display = 'none';
+    document.getElementById('scanErrorState').style.display = 'block';
+  }
+}
+
+async function confirmPhotoItem() {
+  const name = document.getElementById('scanItemName').value.trim();
+  const qty = parseFloat(document.getElementById('scanItemQty').value) || 1;
+  const unit = document.getElementById('scanItemUnit').value.trim();
+  const category = document.getElementById('scanItemCategory').value;
+  const date_frozen = document.getElementById('scanItemDate').value;
+  const notes = document.getElementById('scanItemNotes').value.trim();
+
+  if (!name || !date_frozen) { showToast('Name and date are required'); return; }
+
+  try {
+    await sb('POST', 'freezer_items', { name, quantity: qty, unit, category, date_frozen, notes, added_by: currentUser.name });
+    closeModal('photoScanModal');
+    await loadFreezer();
+    showToast('✅ Added to freezer!');
+  } catch(e) { showToast('Error adding item'); }
+}
 </script>
 
 <!-- PWA Manifest inline -->
