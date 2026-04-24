@@ -396,7 +396,24 @@ body::before {
 .empty-title { font-size: 16px; font-weight: 500; color: var(--silver); margin-bottom: 6px; }
 .empty-text { font-size: 13px; }
 
-/* ===== FREEZER SECTION ===== */
+/* ===== SCANNING SESSION BANNER ===== */
+.session-banner {
+  display: flex; align-items: center; justify-content: space-between;
+  background: linear-gradient(135deg, rgba(33,118,174,0.3), rgba(87,197,232,0.15));
+  border: 1px solid rgba(87,197,232,0.4);
+  border-radius: var(--radius-sm);
+  padding: 10px 14px; margin-bottom: 14px;
+  animation: fadeIn 0.3s ease;
+}
+.session-banner-label { font-size: 11px; color: var(--accent); text-transform: uppercase; letter-spacing: 0.8px; margin-bottom: 2px; }
+.session-banner-loc { font-size: 14px; font-weight: 600; color: var(--pure-white); }
+.session-end-btn {
+  background: rgba(224,90,90,0.2); border: 1px solid rgba(224,90,90,0.3);
+  color: var(--danger); font-size: 12px; padding: 5px 10px;
+  border-radius: 6px; cursor: pointer; font-family: 'DM Sans', sans-serif;
+  white-space: nowrap;
+}
+
 .filter-bar {
   display: flex; gap: 8px; overflow-x: auto; padding-bottom: 4px; margin-bottom: 16px;
   scrollbar-width: none;
@@ -607,6 +624,14 @@ body::before {
 
     <div class="stats-bar" id="freezerStats"></div>
 
+    <!-- Scanning Session Banner -->
+    <div id="sessionBanner" style="display:none;"></div>
+
+    <!-- Start Session Button -->
+    <div id="startSessionBtn" style="margin-bottom:14px;">
+      <button class="btn btn-ghost btn-sm" style="width:100%;" onclick="openModal('sessionModal')">📍 Start Scanning Session</button>
+    </div>
+
     <div class="filter-bar" id="categoryFilter"></div>
 
     <div id="freezerList"><div class="loading"><div class="spinner"></div> Loading...</div></div>
@@ -738,6 +763,23 @@ body::before {
       <label class="form-label">Date Frozen</label>
       <input class="form-input" id="newItemDate" type="date">
     </div>
+    <div class="grid-2">
+      <div class="form-group">
+        <label class="form-label">Freezer</label>
+        <select class="form-select" id="newItemFreezer" onchange="updateManualShelves()">
+          <option value="">— Select —</option>
+          <option value="Kitchen">Kitchen</option>
+          <option value="Mudroom">Mudroom</option>
+          <option value="Basement">Basement</option>
+        </select>
+      </div>
+      <div class="form-group">
+        <label class="form-label">Shelf</label>
+        <select class="form-select" id="newItemShelf">
+          <option value="">— Select —</option>
+        </select>
+      </div>
+    </div>
     <div class="form-group">
       <label class="form-label">Notes (optional)</label>
       <input class="form-input" id="newItemNotes" placeholder="Any details...">
@@ -850,6 +892,33 @@ body::before {
   </div>
 </div>
 
+<!-- Scanning Session Modal -->
+<div class="modal-overlay" id="sessionModal">
+  <div class="modal">
+    <div class="modal-header">
+      <div class="modal-title">📍 Start Scanning Session</div>
+      <button class="modal-close" onclick="closeModal('sessionModal')">×</button>
+    </div>
+    <p style="font-size:13px;color:var(--muted);margin-bottom:20px;">Select a freezer and shelf once — all photos you scan will automatically be added to this location until you end the session.</p>
+    <div class="form-group">
+      <label class="form-label">Freezer</label>
+      <select class="form-select" id="sessionFreezer" onchange="updateSessionShelves()">
+        <option value="">— Select Freezer —</option>
+        <option value="Kitchen">Kitchen</option>
+        <option value="Mudroom">Mudroom</option>
+        <option value="Basement">Basement</option>
+      </select>
+    </div>
+    <div class="form-group">
+      <label class="form-label">Shelf</label>
+      <select class="form-select" id="sessionShelf">
+        <option value="">— Select Shelf —</option>
+      </select>
+    </div>
+    <button class="btn btn-primary" style="width:100%;" onclick="startSession()">Start Session</button>
+  </div>
+</div>
+
 <div class="toast" id="toast"></div>
 
 <!-- Hidden camera input -->
@@ -906,6 +975,23 @@ body::before {
       <div class="form-group">
         <label class="form-label">Date Frozen</label>
         <input class="form-input" id="scanItemDate" type="date">
+      </div>
+      <div class="grid-2">
+        <div class="form-group">
+          <label class="form-label">Freezer</label>
+          <select class="form-select" id="scanItemFreezer" onchange="updateScanShelves()">
+            <option value="">— Select —</option>
+            <option value="Kitchen">Kitchen</option>
+            <option value="Mudroom">Mudroom</option>
+            <option value="Basement">Basement</option>
+          </select>
+        </div>
+        <div class="form-group">
+          <label class="form-label">Shelf</label>
+          <select class="form-select" id="scanItemShelf">
+            <option value="">— Select —</option>
+          </select>
+        </div>
       </div>
       <div class="form-group">
         <label class="form-label">Notes</label>
@@ -973,6 +1059,12 @@ const CATEGORY_ICONS = {
 const CATEGORIES = Object.keys(CATEGORY_ICONS);
 const DAYS = ['Monday','Tuesday','Wednesday','Thursday','Friday','Saturday','Sunday'];
 
+const FREEZER_SHELVES = {
+  'Kitchen': ['Top', 'Bottom'],
+  'Mudroom': ['Top Shelf', 'Second Shelf', 'Third Shelf', 'Bottom Shelf', 'Door'],
+  'Basement': ['Basement']
+};
+
 // ============================================================
 // STATE
 // ============================================================
@@ -984,8 +1076,8 @@ let recipes = [];
 let mealPlan = [];
 let shopItems = [];
 let activeCategoryFilter = 'All';
-let editingMealSlot = null; // {week_start_date, day, meal_slot, existing_id}
-let realtimeChannels = [];
+let editingMealSlot = null;
+let activeSession = null; // { freezer, shelf }
 
 
 // ============================================================
@@ -1154,6 +1246,7 @@ function renderFreezer() {
           <div class="item-info">
             <div class="item-name">${item.name}</div>
             <div class="item-meta">${item.category} · Frozen ${formatDate(item.date_frozen)} ${ageBadge}</div>
+            ${item.freezer ? `<div class="item-meta" style="margin-top:2px;">📍 ${item.freezer}${item.shelf ? ' — ' + item.shelf : ''}</div>` : ''}
             ${item.notes ? `<div class="item-meta" style="margin-top:3px;">${item.notes}</div>` : ''}
           </div>
           <div style="display:flex;flex-direction:column;align-items:flex-end;gap:6px;">
@@ -1177,11 +1270,13 @@ async function addFreezerItem() {
   const category = document.getElementById('newItemCategory').value;
   const date_frozen = document.getElementById('newItemDate').value;
   const notes = document.getElementById('newItemNotes').value.trim();
+  const freezer = document.getElementById('newItemFreezer').value || null;
+  const shelf = document.getElementById('newItemShelf').value || null;
 
   if (!name || !date_frozen) { showToast('Name and date are required'); return; }
 
   try {
-    await sbInsert('MealsFreezerItems', { name, quantity: qty, unit, category, date_frozen, notes, added_by: currentUser.name });
+    await sbInsert('MealsFreezerItems', { name, quantity: qty, unit, category, date_frozen, notes, freezer, shelf, added_by: currentUser.name });
     closeModal('addItemModal');
     clearForm(['newItemName','newItemQty','newItemUnit','newItemNotes']);
     await loadFreezer();
@@ -1617,6 +1712,11 @@ function setTodayDate() {
 
 function openModal(id) {
   document.getElementById(id).classList.add('open');
+  // Pre-fill location from active session when opening manual add
+  if (id === 'addItemModal' && activeSession) {
+    document.getElementById('newItemFreezer').value = activeSession.freezer;
+    populateShelfSelect('newItemShelf', activeSession.freezer, activeSession.shelf);
+  }
 }
 function closeModal(id) {
   document.getElementById(id).classList.remove('open');
@@ -1645,6 +1745,72 @@ function showToast(msg) {
 
 // Set recipe URL mode as default
 setRecipeMode('url');
+
+// ============================================================
+// LOCATION / SESSION HELPERS
+// ============================================================
+function getShelvesFor(freezer) {
+  return FREEZER_SHELVES[freezer] || [];
+}
+
+function populateShelfSelect(selectId, freezer, currentVal) {
+  const sel = document.getElementById(selectId);
+  const shelves = getShelvesFor(freezer);
+  sel.innerHTML = '<option value="">— Select Shelf —</option>' +
+    shelves.map(s => `<option value="${s}" ${s === currentVal ? 'selected' : ''}>${s}</option>`).join('');
+  // Auto-select if only one option (Basement)
+  if (shelves.length === 1) sel.value = shelves[0];
+}
+
+function updateSessionShelves() {
+  const freezer = document.getElementById('sessionFreezer').value;
+  populateShelfSelect('sessionShelf', freezer, '');
+}
+
+function updateManualShelves() {
+  const freezer = document.getElementById('newItemFreezer').value;
+  populateShelfSelect('newItemShelf', freezer, '');
+}
+
+function updateScanShelves() {
+  const freezer = document.getElementById('scanItemFreezer').value;
+  populateShelfSelect('scanItemShelf', freezer, '');
+}
+
+function startSession() {
+  const freezer = document.getElementById('sessionFreezer').value;
+  const shelf = document.getElementById('sessionShelf').value;
+  if (!freezer || !shelf) { showToast('Please select both a freezer and shelf'); return; }
+  activeSession = { freezer, shelf };
+  closeModal('sessionModal');
+  renderSessionBanner();
+  showToast(`📍 Session started: ${freezer} — ${shelf}`);
+}
+
+function endSession() {
+  activeSession = null;
+  renderSessionBanner();
+  showToast('Session ended');
+}
+
+function renderSessionBanner() {
+  const banner = document.getElementById('sessionBanner');
+  const startBtn = document.getElementById('startSessionBtn');
+  if (activeSession) {
+    banner.style.display = 'flex';
+    banner.innerHTML = `
+      <div>
+        <div class="session-banner-label">📍 Active Scanning Session</div>
+        <div class="session-banner-loc">${activeSession.freezer} — ${activeSession.shelf}</div>
+      </div>
+      <button class="session-end-btn" onclick="endSession()">End Session</button>
+    `;
+    startBtn.style.display = 'none';
+  } else {
+    banner.style.display = 'none';
+    startBtn.style.display = 'block';
+  }
+}
 
 // ============================================================
 // PHOTO SCAN
@@ -1724,6 +1890,15 @@ Return ONLY valid JSON, no markdown.`
     const matchedCat = [...catSel.options].find(o => o.value === item.category);
     if (matchedCat) catSel.value = item.category;
 
+    // Pre-fill location from active session
+    if (activeSession) {
+      document.getElementById('scanItemFreezer').value = activeSession.freezer;
+      populateShelfSelect('scanItemShelf', activeSession.freezer, activeSession.shelf);
+    } else {
+      document.getElementById('scanItemFreezer').value = '';
+      populateShelfSelect('scanItemShelf', '', '');
+    }
+
     // Show preview image
     document.getElementById('scanPreview').innerHTML =
       `<img src="${previewUrl}" style="max-height:140px;border-radius:10px;border:1px solid var(--card-border);object-fit:cover;">`;
@@ -1744,14 +1919,18 @@ async function confirmPhotoItem() {
   const category = document.getElementById('scanItemCategory').value;
   const date_frozen = document.getElementById('scanItemDate').value;
   const notes = document.getElementById('scanItemNotes').value.trim();
+  const freezer = document.getElementById('scanItemFreezer').value || null;
+  const shelf = document.getElementById('scanItemShelf').value || null;
 
   if (!name || !date_frozen) { showToast('Name and date are required'); return; }
 
   try {
-    await sbInsert('MealsFreezerItems', { name, quantity: qty, unit, category, date_frozen, notes, added_by: currentUser.name });
+    await sbInsert('MealsFreezerItems', { name, quantity: qty, unit, category, date_frozen, notes, freezer, shelf, added_by: currentUser.name });
     closeModal('photoScanModal');
     await loadFreezer();
-    showToast('✅ Added to freezer!');
+    // Keep session active — ready for next photo
+    if (activeSession) showToast(`✅ Added to ${activeSession.freezer} — ${activeSession.shelf}`);
+    else showToast('✅ Added to freezer!');
   } catch(e) { showToast('Error adding item'); }
 }
 </script>
