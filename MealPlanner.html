@@ -634,6 +634,20 @@ body::before {
 
     <div class="filter-bar" id="categoryFilter"></div>
 
+    <!-- Search -->
+    <div style="position:relative;margin-bottom:12px;">
+      <input class="form-input" id="freezerSearch" placeholder="🔍 Search items..." oninput="renderFreezer()" style="padding-left:14px;">
+    </div>
+
+    <!-- Freezer filter + shelf sort row -->
+    <div style="display:flex;gap:8px;margin-bottom:12px;align-items:center;flex-wrap:wrap;">
+      <div class="filter-bar" id="freezerFilter" style="margin-bottom:0;flex:1;"></div>
+      <select class="form-select" id="shelfSort" onchange="renderFreezer()" style="width:auto;font-size:12px;padding:6px 10px;flex-shrink:0;">
+        <option value="">Sort by age</option>
+        <option value="shelf">Sort by shelf</option>
+      </select>
+    </div>
+
     <div id="freezerList"><div class="loading"><div class="spinner"></div> Loading...</div></div>
   </div>
 
@@ -1076,6 +1090,7 @@ let recipes = [];
 let mealPlan = [];
 let shopItems = [];
 let activeCategoryFilter = 'All';
+let activeFreezerFilter = 'All';
 let editingMealSlot = null;
 let activeSession = null; // { freezer, shelf }
 
@@ -1215,19 +1230,51 @@ function renderFreezer() {
     <div class="stat-card"><div class="stat-num" style="color:var(--warn)">${old}</div><div class="stat-label">Use Soon</div></div>
   `;
 
-  // Category filter
+  // Category filter chips
   const filterBar = document.getElementById('categoryFilter');
   const allCats = ['All', ...CATEGORIES.filter(c => freezerItems.some(i => i.category === c))];
   filterBar.innerHTML = allCats.map(c =>
     `<button class="filter-chip ${activeCategoryFilter === c ? 'active' : ''}" onclick="setFilter('${c}')">${c === 'All' ? 'All' : CATEGORY_ICONS[c] + ' ' + c}</button>`
   ).join('');
 
-  // List
-  const list = document.getElementById('freezerList');
-  let items = activeCategoryFilter === 'All' ? freezerItems : freezerItems.filter(i => i.category === activeCategoryFilter);
+  // Freezer filter chips
+  const freezerBar = document.getElementById('freezerFilter');
+  const usedFreezers = ['All', ...['Kitchen','Mudroom','Basement'].filter(f => freezerItems.some(i => i.freezer === f))];
+  freezerBar.innerHTML = usedFreezers.map(f =>
+    `<button class="filter-chip ${activeFreezerFilter === f ? 'active' : ''}" onclick="setFreezerFilter('${f}')">${f === 'All' ? '🧊 All Freezers' : '❄️ ' + f}</button>`
+  ).join('');
 
+  // Get search term
+  const searchTerm = (document.getElementById('freezerSearch')?.value || '').toLowerCase().trim();
+
+  // Get sort preference
+  const sortByShelf = document.getElementById('shelfSort')?.value === 'shelf';
+
+  // Apply filters
+  let items = [...freezerItems];
+  if (activeCategoryFilter !== 'All') items = items.filter(i => i.category === activeCategoryFilter);
+  if (activeFreezerFilter !== 'All') items = items.filter(i => i.freezer === activeFreezerFilter);
+  if (searchTerm) items = items.filter(i =>
+    i.name.toLowerCase().includes(searchTerm) ||
+    (i.notes && i.notes.toLowerCase().includes(searchTerm)) ||
+    (i.category && i.category.toLowerCase().includes(searchTerm))
+  );
+
+  // Apply sort
+  if (sortByShelf && activeFreezerFilter !== 'All') {
+    const shelfOrder = FREEZER_SHELVES[activeFreezerFilter] || [];
+    items.sort((a, b) => {
+      const ai = shelfOrder.indexOf(a.shelf);
+      const bi = shelfOrder.indexOf(b.shelf);
+      return (ai === -1 ? 99 : ai) - (bi === -1 ? 99 : bi);
+    });
+  }
+
+  // Render list
+  const list = document.getElementById('freezerList');
   if (!items.length) {
-    list.innerHTML = `<div class="empty-state"><div class="empty-icon">🧊</div><div class="empty-title">Freezer is empty</div><div class="empty-text">Tap + to add items</div></div>`;
+    const msg = searchTerm ? `No items matching "${searchTerm}"` : 'No items in this filter';
+    list.innerHTML = `<div class="empty-state"><div class="empty-icon">🧊</div><div class="empty-title">${msg}</div><div class="empty-text">Try a different filter or search term</div></div>`;
     return;
   }
 
@@ -1260,6 +1307,14 @@ function renderFreezer() {
 
 function setFilter(cat) {
   activeCategoryFilter = cat;
+  renderFreezer();
+}
+
+function setFreezerFilter(freezer) {
+  activeFreezerFilter = freezer;
+  // Reset shelf sort when switching freezers
+  const shelfSort = document.getElementById('shelfSort');
+  if (shelfSort) shelfSort.value = '';
   renderFreezer();
 }
 
