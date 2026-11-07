@@ -553,6 +553,9 @@ body::before {
 }
 .stat-num { font-size: 24px; font-weight: 700; color: var(--accent); font-family: 'Playfair Display', serif; }
 .stat-label { font-size: 11px; color: var(--muted); margin-top: 2px; }
+
+/* Build label (version + date) */
+.build-label { text-align: center; font-size: 11px; color: var(--muted); opacity: 0.7; margin-top: 16px; }
 </style>
 </head>
 <body>
@@ -592,6 +595,7 @@ body::before {
       <button class="pin-key enter" onclick="pinSubmit()">GO</button>
     </div>
     <div class="pin-error" id="pinError"></div>
+    <div class="build-label">v2 · Nov 7, 2026</div>
   </div>
 </div>
 
@@ -715,6 +719,8 @@ body::before {
 
     <div id="shopList"><div class="loading"><div class="spinner"></div> Loading...</div></div>
   </div>
+
+  <div class="build-label">Grasse Meal Planner · v2 · Nov 7, 2026</div>
 
   <!-- NAV -->
   <nav class="app-nav">
@@ -1028,7 +1034,7 @@ body::before {
 // ============================================================
 // CONFIG
 // ============================================================
-const WORKER_URL = 'https://grasse-apps-proxy.ed-53c.workers.dev';
+const WORKER_URL = 'https://mealplanner-proxy.ed-53c.workers.dev'; // own Worker (was grasse-apps-proxy)
 const APP_ID = 'mealplanner';
 const CF_WORKER = WORKER_URL; // used for AI calls
 
@@ -1550,22 +1556,8 @@ async function addRecipeFromUrl() {
   status.textContent = '✨ Fetching recipe with AI...';
 
   try {
-    const response = await fetch(CF_WORKER, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-5',
-        max_tokens: 1500,
-        messages: [{
-          role: 'user',
-          content: `Please fetch and parse this recipe URL and return a JSON object with these fields: name (string), ingredients (array of strings), instructions (string), notes (string). URL: ${url}
-
-Return ONLY valid JSON, no markdown, no explanation.`
-        }]
-      })
-    });
-    const data = await response.json();
-    const text = data.content?.[0]?.text || '';
+    const data = await workerCall({ method: 'CLAUDE_API', claudeMethod: 'mealRecipeFromUrl', url });
+    const text = data.result || '';
     const clean = text.replace(/```json|```/g, '').trim();
     const recipe = JSON.parse(clean);
 
@@ -1633,33 +1625,8 @@ async function getAISuggestions() {
   const recipeNames = recipes.map(r => r.name).join(', ');
 
   try {
-    const response = await fetch(CF_WORKER, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-5',
-        max_tokens: 1200,
-        messages: [{
-          role: 'user',
-          content: `You are a helpful meal planner. Based on this freezer inventory, suggest 4 meal ideas. Prioritize items that have been frozen the longest.
-
-FREEZER INVENTORY (sorted oldest first):
-${inventory}
-
-${recipeNames ? `EXISTING RECIPES IN LIBRARY: ${recipeNames}` : ''}
-
-For each meal suggestion, provide:
-1. Meal name
-2. Which freezer items it uses (especially older ones)
-3. A brief note on why it's a good choice now
-
-Format as JSON array: [{"meal": "name", "uses": ["item1","item2"], "note": "brief reason"}, ...]
-Return ONLY valid JSON.`
-        }]
-      })
-    });
-    const data = await response.json();
-    const text = data.content?.[0]?.text || '[]';
+    const data = await workerCall({ method: 'CLAUDE_API', claudeMethod: 'mealSuggest', inventory, recipeNames });
+    const text = data.result || '[]';
     const clean = text.replace(/```json|```/g, '').trim();
     const suggestions = JSON.parse(clean);
 
@@ -1899,37 +1866,8 @@ async function handlePhotoScan(event) {
   event.target.value = '';
 
   try {
-    const response = await fetch(CF_WORKER, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        model: 'claude-sonnet-4-5',
-        max_tokens: 500,
-        messages: [{
-          role: 'user',
-          content: [
-            {
-              type: 'image',
-              source: { type: 'base64', media_type: file.type || 'image/jpeg', data: base64 }
-            },
-            {
-              type: 'text',
-              text: `This is a photo of food that is being added to a freezer. Identify what it is and return a JSON object with these fields:
-- name: specific food name (e.g. "Ground Beef", "Chicken Thighs", "Beef Stew")
-- category: one of exactly these options: Meat, Poultry, Fish/Seafood, Vegetables, Prepared Meals, Bread/Baked Goods, Soups/Stocks, Desserts/Treats, Appetizers
-- quantity: estimated quantity as a number (default 1 if unclear)
-- unit: unit like "lbs", "oz", "bags", "portions", or empty string if unclear
-- notes: any visible label info, packaging details, or helpful notes (brief)
-
-Return ONLY valid JSON, no markdown.`
-            }
-          ]
-        }]
-      })
-    });
-
-    const data = await response.json();
-    const text = data.content?.[0]?.text || '';
+    const data = await workerCall({ method: 'CLAUDE_API', claudeMethod: 'mealPhotoScan', base64Data: base64, mediaType: file.type || 'image/jpeg' });
+    const text = data.result || '';
     const clean = text.replace(/```json|```/g, '').trim();
     const item = JSON.parse(clean);
 
@@ -2009,6 +1947,15 @@ const url = URL.createObjectURL(blob);
 const link = document.createElement('link');
 link.rel = 'manifest'; link.href = url;
 document.head.appendChild(link);
+</script>
+
+<!-- Service worker: always load the newest deployed version (network-first) -->
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('sw.js').catch(() => {});
+  });
+}
 </script>
 </body>
 </html>
